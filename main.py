@@ -1,12 +1,28 @@
 import os
+from flask import Flask
+from threading import Thread
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes
 
-# جلب المتغيرات البيئية من منصة Render تلقائياً (لا تغيرها هنا)
+# --- تشغيل سيرفر ويب مدمج لإرضاء منصة Render المجانية ---
+server = Flask('')
+
+@server.route('/')
+def home():
+    return "OK", 200
+
+def run():
+    server.run(host='0.0.0.0', port=int(os.environ.get('PORT', 8080)))
+
+# --- جلب المتغيرات البيئية من Render ---
 TOKEN = os.getenv("BOT_TOKEN")
 CHANNEL_URL = os.getenv("CHANNEL_URL")
+# نصيحة: ضع آيدي القناة العامة الرقمي (يبدأ بـ 100-) في متغير اسمه CHANNEL_ID على ريندر للتحقق المضمون 100%
+CHANNEL_ID_ENV = os.getenv("CHANNEL_ID") 
 
 def get_chat_id():
+    if CHANNEL_ID_ENV:
+        return CHANNEL_ID_ENV
     if "t.me/" in CHANNEL_URL:
         username = CHANNEL_URL.split("t.me/")[1].replace("+", "")
         if username.startswith("joinchat/") or username.startswith("chat/"):
@@ -16,18 +32,18 @@ def get_chat_id():
 
 CHAT_CHECK_ID = get_chat_id()
 
-# دالة ذكية لإصلاح معرف القناة المستلم من الرابط
 def format_channel_id(channel_str):
-    # إذا قمت بكتابة b قبل الآيدي في الرابط لتعويض السالب
     if channel_str.startswith("b"):
         channel_str = channel_str.replace("b", "-100", 1)
-    # إذا أرسلت الرقم مباشرة بدون سالب ومكون من 10 أرقام أو أكثر
     elif not channel_str.startswith("-"):
         if channel_str.startswith("100"):
             channel_str = f"-{channel_str}"
         else:
             channel_str = f"-100{channel_str}"
-    return channel_str
+    try:
+        return int(channel_str)
+    except ValueError:
+        return channel_str
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     args = context.args
@@ -46,7 +62,9 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     storage_channel = format_channel_id(storage_channel)
         
     try:
-        member = await context.bot.get_chat_member(chat_id=CHAT_CHECK_ID, user_id=user_id)
+        # إذا كان المعرف عبارة عن رابط دعوة، نحاول تحويل CHAT_CHECK_ID إذا كان رقماً
+        check_id = int(CHAT_CHECK_ID) if str(CHAT_CHECK_ID).replace("-", "").isdigit() else CHAT_CHECK_ID
+        member = await context.bot.get_chat_member(chat_id=check_id, user_id=user_id)
         if member.status in ['member', 'administrator', 'creator']:
             await context.bot.copy_message(
                 chat_id=user_id,
@@ -76,7 +94,8 @@ async def check_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     storage_channel = format_channel_id(storage_channel)
         
     try:
-        member = await context.bot.get_chat_member(chat_id=CHAT_CHECK_ID, user_id=user_id)
+        check_id = int(CHAT_CHECK_ID) if str(CHAT_CHECK_ID).replace("-", "").isdigit() else CHAT_CHECK_ID
+        member = await context.bot.get_chat_member(chat_id=check_id, user_id=user_id)
         if member.status in ['member', 'administrator', 'creator']:
             await query.delete_message()
             await context.bot.copy_message(
@@ -90,9 +109,15 @@ async def check_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.answer("حدث خطأ أثناء التحقق، تأكد من اشتراكك وبأن البوت مسؤول في القناة.", show_alert=True)
 
 def main():
+    # تشغيل سيرفر Flask في الخلفية
+    t = Thread(target=run)
+    t.start()
+
+    # تشغيل البوت
     app = Application.builder().token(TOKEN).build()
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CallbackQueryHandler(check_callback, pattern="^check_"))
+    print("البوت وسيرفر الويب يعملان بنجاح...")
     app.run_polling()
 
 if __name__ == '__main__':
