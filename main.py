@@ -1,9 +1,8 @@
 import os
-import re
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes
 
-# جلب توكن البوت ورابط القناة العامة من منصة Render
+# جلب المتغيرات البيئية من منصة Render تلقائياً (لا تغيرها هنا)
 TOKEN = os.getenv("BOT_TOKEN")
 CHANNEL_URL = os.getenv("CHANNEL_URL")
 
@@ -17,11 +16,12 @@ def get_chat_id():
 
 CHAT_CHECK_ID = get_chat_id()
 
-# دالة لتنظيف وتجهيز معرف قناة التخزين المستلم من الرابط
+# دالة ذكية لإصلاح معرف القناة المستلم من الرابط
 def format_channel_id(channel_str):
-    # إذا كان المعرف يحتوي على علامة السالب (مثل -100123456)
-    if channel_str.startswith("minus"):
-        channel_str = channel_str.replace("minus", "-")
+    # إذا قمت بكتابة b قبل الآيدي في الرابط لتعويض السالب
+    if channel_str.startswith("b"):
+        channel_str = channel_str.replace("b", "-100", 1)
+    # إذا أرسلت الرقم مباشرة بدون سالب ومكون من 10 أرقام أو أكثر
     elif not channel_str.startswith("-"):
         if channel_str.startswith("100"):
             channel_str = f"-{channel_str}"
@@ -42,14 +42,12 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("رابط التشغيل غير صالح.")
         return
         
-    # تفكيك الرابط لمعرفة قناة التخزين ورقم الملف
     storage_channel, file_id = data.split("_", 1)
     storage_channel = format_channel_id(storage_channel)
         
     try:
         member = await context.bot.get_chat_member(chat_id=CHAT_CHECK_ID, user_id=user_id)
         if member.status in ['member', 'administrator', 'creator']:
-            # نسخ الملف وإرساله مباشرة للمستخدم
             await context.bot.copy_message(
                 chat_id=user_id,
                 from_chat_id=storage_channel,
@@ -73,7 +71,6 @@ async def check_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.answer()
     
     user_id = query.from_user.id
-    # استخراج البيانات الممررة عبر الزر
     data = query.data.replace("check_", "")
     storage_channel, file_id = data.split("_", 1)
     storage_channel = format_channel_id(storage_channel)
